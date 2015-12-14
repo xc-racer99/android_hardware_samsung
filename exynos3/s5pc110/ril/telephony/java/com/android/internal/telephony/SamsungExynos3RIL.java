@@ -38,8 +38,6 @@ import android.os.Registrant;
 import android.os.SystemProperties;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SignalStrength;
-import android.telephony.SmsManager;
-import android.telephony.SmsMessage;
 import android.telephony.TelephonyManager;
 import android.telephony.ModemActivityInfo;
 import static com.android.internal.telephony.RILConstants.*;
@@ -914,5 +912,15 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
 
         send(rr);
+    }
+
+    @Override
+    public void getRadioCapability(Message response) {
+        riljLog("getRadioCapability: returning static radio capability");
+        if (response != null) {
+            Object ret = makeStaticRadioCapability();
+            AsyncResult.forMessage(response, ret, null);
+            response.sendToTarget();
+        }
     }
 }
