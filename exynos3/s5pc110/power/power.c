@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2012 The Android Open Source Project
- * Copyright (C) 2012 The CyanogenMod Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,48 +25,24 @@
 #include <hardware/hardware.h>
 #include <hardware/power.h>
 
-#define SCALING_GOVERNOR_PATH "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
-#define BOOSTPULSE_ONDEMAND "/sys/devices/system/cpu/cpufreq/ondemand/boostpulse"
-#define BOOSTPULSE_INTERACTIVE "/sys/devices/system/cpu/cpufreq/interactive/boostpulse"
-#define TIMER_RATE_SCREEN_ON "30000"
-#define TIMER_RATE_SCREEN_OFF "150000"
+#define CPUFREQ_INTERACTIVE "/sys/devices/system/cpu/cpufreq/interactive/"
+#define CPUFREQ_CPU0 "/sys/devices/system/cpu/cpu0/cpufreq/"
+#define BOOSTPULSE_PATH (CPUFREQ_INTERACTIVE "boostpulse")
+#define SCALINGMAXFREQ_PATH (CPUFREQ_CPU0 "scaling_max_freq")
+
+#define MAX_BUF_SZ  10
+
+/* initialize to something safe */
+static char screen_off_max_freq[MAX_BUF_SZ] = "800000";
+static char scaling_max_freq[MAX_BUF_SZ] = "1000000";
 
 struct s5pc110_power_module {
     struct power_module base;
     pthread_mutex_t lock;
     int boostpulse_fd;
     int boostpulse_warned;
+    int inited;
 };
-
-static char governor[20];
-
-static int sysfs_read(char *path, char *s, int num_bytes)
-{
-    char buf[80];
-    int count;
-    int ret = 0;
-    int fd = open(path, O_RDONLY);
-
-    if (fd < 0) {
-        strerror_r(errno, buf, sizeof(buf));
-        ALOGE("Error opening %s: %s\n", path, buf);
-
-        return -1;
-    }
-
-    if ((count = read(fd, s, num_bytes - 1)) < 0) {
-        strerror_r(errno, buf, sizeof(buf));
-        ALOGE("Error writing to %s: %s\n", path, buf);
-
-        ret = -1;
-    } else {
-        s[count] = '\0';
-    }
-
-    close(fd);
-
-    return ret;
-}
 
 static void sysfs_write(char *path, char *s)
 {
@@ -90,43 +65,36 @@ static void sysfs_write(char *path, char *s)
     close(fd);
 }
 
-static int get_scaling_governor() {
-    if (sysfs_read(SCALING_GOVERNOR_PATH, governor,
-                sizeof(governor)) == -1) {
-        // Can't obtain the scaling governor. Return.
-        return -1;
-    } else {
-        // Strip newline at the end.
-        int len = strlen(governor);
+int sysfs_read(const char *path, char *buf, size_t size)
+{
+  int fd, len;
 
-        len--;
+  fd = open(path, O_RDONLY);
+  if (fd < 0)
+    return -1;
 
-        while (len >= 0 && (governor[len] == '\n' || governor[len] == '\r'))
-            governor[len--] = '\0';
-    }
+  do {
+    len = read(fd, buf, size);
+  } while (len < 0 && errno == EINTR);
 
-    return 0;
+  close(fd);
+
+  return len;
 }
 
-static void s5pc110_power_set_interactive(struct power_module *module, int on)
+static void s5pc110_power_init(struct power_module *module)
 {
-    if (strncmp(governor, "interactive", 11) == 0)
-        sysfs_write("/sys/devices/system/cpu/cpufreq/interactive/timer_rate",
-                on ? TIMER_RATE_SCREEN_ON : TIMER_RATE_SCREEN_OFF);
-}
+    struct s5pc110_power_module *s5pc110 = (struct s5pc110_power_module *) module;
 
-static void configure_governor()
-{
-    s5pc110_power_set_interactive(NULL, 1);
+    sysfs_write(CPUFREQ_INTERACTIVE "timer_rate", "20000");
+    sysfs_write(CPUFREQ_INTERACTIVE "min_sample_time", "60000");
+    sysfs_write(CPUFREQ_INTERACTIVE "hispeed_freq", "1000000");
+    sysfs_write(CPUFREQ_INTERACTIVE "target_loads", "70 800000:80 1000000:90");
+    sysfs_write(CPUFREQ_INTERACTIVE "go_hispeed_load", "99");
+    sysfs_write(CPUFREQ_INTERACTIVE "above_hispeed_delay", "80000");
 
-    if (strncmp(governor, "ondemand", 8) == 0) {
-        sysfs_write("/sys/devices/system/cpu/cpufreq/ondemand/up_threshold", "95");
-        sysfs_write("/sys/devices/system/cpu/cpufreq/ondemand/io_is_busy", "1");
-        sysfs_write("/sys/devices/system/cpu/cpufreq/ondemand/sampling_down_factor", "4");
-    } else if (strncmp(governor, "interactive", 11) == 0) {
-        sysfs_write("/sys/devices/system/cpu/cpufreq/interactive/min_sample_time", "90000");
-        sysfs_write("/sys/devices/system/cpu/cpufreq/interactive/above_hispeed_delay", "30000");
-    }
+    ALOGI("Initialized successfully");
+    s5pc110->inited = 1;
 }
 
 static int boostpulse_open(struct s5pc110_power_module *s5pc110)
@@ -136,22 +104,13 @@ static int boostpulse_open(struct s5pc110_power_module *s5pc110)
     pthread_mutex_lock(&s5pc110->lock);
 
     if (s5pc110->boostpulse_fd < 0) {
-        if (get_scaling_governor() < 0) {
-            ALOGE("Can't read scaling governor.");
-            s5pc110->boostpulse_warned = 1;
-        } else {
-            if (strncmp(governor, "ondemand", 8) == 0)
-                s5pc110->boostpulse_fd = open(BOOSTPULSE_ONDEMAND, O_WRONLY);
-            else if (strncmp(governor, "interactive", 11) == 0)
-                s5pc110->boostpulse_fd = open(BOOSTPULSE_INTERACTIVE, O_WRONLY);
+        s5pc110->boostpulse_fd = open(BOOSTPULSE_PATH, O_WRONLY);
 
-            if (s5pc110->boostpulse_fd < 0 && !s5pc110->boostpulse_warned) {
+        if (s5pc110->boostpulse_fd < 0) {
+            if (!s5pc110->boostpulse_warned) {
                 strerror_r(errno, buf, sizeof(buf));
-                ALOGE("Error opening %s boostpulse interface: %s\n", governor, buf);
+                ALOGE("Error opening %s: %s\n", BOOSTPULSE_PATH, buf);
                 s5pc110->boostpulse_warned = 1;
-            } else if (s5pc110->boostpulse_fd > 0) {
-                configure_governor();
-                ALOGD("Opened %s boostpulse interface", governor);
             }
         }
     }
@@ -160,35 +119,58 @@ static int boostpulse_open(struct s5pc110_power_module *s5pc110)
     return s5pc110->boostpulse_fd;
 }
 
+static void s5pc110_power_set_interactive(struct power_module *module, int on)
+{
+    struct s5pc110_power_module *s5pc110 = (struct s5pc110_power_module *) module;
+    int len;
+    char buf[MAX_BUF_SZ];
+
+    if (!s5pc110->inited) {
+        return;
+    }
+
+    /*
+     * Lower maximum frequency when screen is off.  CPU 0 and 1 share a
+     * cpufreq policy.
+     */
+    if (!on) {
+        /* read the current scaling max freq and save it before updating */
+        len = sysfs_read(SCALINGMAXFREQ_PATH, buf, sizeof(buf));
+
+        /* make sure it's not the screen off freq, if the "on"
+         * call is skipped (can happen if you press the power
+         * button repeatedly) we might have read it. We should
+         * skip it if that's the case
+         */
+        if (len != -1 && strncmp(buf, screen_off_max_freq,
+                strlen(screen_off_max_freq)) != 0)
+            memcpy(scaling_max_freq, buf, sizeof(buf));
+        sysfs_write(SCALINGMAXFREQ_PATH, screen_off_max_freq);
+    } else
+        sysfs_write(SCALINGMAXFREQ_PATH, scaling_max_freq);
+}
+
 static void s5pc110_power_hint(struct power_module *module, power_hint_t hint,
-                            void *data)
+                            void *data __unused)
 {
     struct s5pc110_power_module *s5pc110 = (struct s5pc110_power_module *) module;
     char buf[80];
     int len;
-    int duration = 1;
+
+    if (!s5pc110->inited) {
+        return;
+    }
 
     switch (hint) {
     case POWER_HINT_INTERACTION:
-    case POWER_HINT_CPU_BOOST:
         if (boostpulse_open(s5pc110) >= 0) {
-            if (data != NULL)
-                duration = (int) data;
+	    len = write(s5pc110->boostpulse_fd, "1", 1);
 
-            snprintf(buf, sizeof(buf), "%d", duration);
-            len = write(s5pc110->boostpulse_fd, buf, strlen(buf));
-
-            if (len < 0) {
-                strerror_r(errno, buf, sizeof(buf));
-                ALOGE("Error writing to boostpulse: %s\n", buf);
-
-                pthread_mutex_lock(&s5pc110->lock);
-                close(s5pc110->boostpulse_fd);
-                s5pc110->boostpulse_fd = -1;
-                s5pc110->boostpulse_warned = 0;
-                pthread_mutex_unlock(&s5pc110->lock);
-            }
-        }
+	    if (len < 0) {
+	        strerror_r(errno, buf, sizeof(buf));
+		ALOGE("Error writing to %s: %s\n", BOOSTPULSE_PATH, buf);
+	    }
+	}
         break;
 
     case POWER_HINT_VSYNC:
@@ -199,33 +181,29 @@ static void s5pc110_power_hint(struct power_module *module, power_hint_t hint,
     }
 }
 
-static void s5pc110_power_init(struct power_module *module)
-{
-    get_scaling_governor();
-    configure_governor();
-}
-
 static struct hw_module_methods_t power_module_methods = {
     .open = NULL,
 };
 
 struct s5pc110_power_module HAL_MODULE_INFO_SYM = {
-    base: {
-        common: {
-            tag: HARDWARE_MODULE_TAG,
-            module_api_version: POWER_MODULE_API_VERSION_0_2,
-            hal_api_version: HARDWARE_HAL_API_VERSION,
-            id: POWER_HARDWARE_MODULE_ID,
-            name: "S5PC110 Power HAL",
-            author: "The CyanogenMod Project",
-            methods: &power_module_methods,
+    .base = {
+        .common = {
+            .tag = HARDWARE_MODULE_TAG,
+            .module_api_version = POWER_MODULE_API_VERSION_0_2,
+            .hal_api_version = HARDWARE_HAL_API_VERSION,
+            .id = POWER_HARDWARE_MODULE_ID,
+            .name = "S5PC110 Power HAL",
+            .author = "The Android Open Source Project",
+            .methods = &power_module_methods,
         },
-       init: s5pc110_power_init,
-       setInteractive: s5pc110_power_set_interactive,
-       powerHint: s5pc110_power_hint,
+
+        .init = s5pc110_power_init,
+        .setInteractive = s5pc110_power_set_interactive,
+        .powerHint = s5pc110_power_hint,
     },
 
-    lock: PTHREAD_MUTEX_INITIALIZER,
-    boostpulse_fd: -1,
-    boostpulse_warned: 0,
+    .lock = PTHREAD_MUTEX_INITIALIZER,
+    .boostpulse_fd = -1,
+    .boostpulse_warned = 0,
 };
+
