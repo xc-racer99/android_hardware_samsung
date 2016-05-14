@@ -587,6 +587,108 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
 
     @Override
     protected Object
+    responseCallList(Parcel p) {
+        int num;
+        boolean isVideo;
+        ArrayList<DriverCall> response;
+        DriverCall dc;
+        int dataAvail = p.dataAvail();
+        int pos = p.dataPosition();
+        int size = p.dataSize();
+
+        Rlog.d(RILJ_LOG_TAG, "Parcel size = " + size);
+        Rlog.d(RILJ_LOG_TAG, "Parcel pos = " + pos);
+        Rlog.d(RILJ_LOG_TAG, "Parcel dataAvail = " + dataAvail);
+
+        num = p.readInt();
+        response = new ArrayList<DriverCall>(num);
+
+        if (RILJ_LOGV) {
+            Rlog.d(RILJ_LOG_TAG, "responseCallList: num=" + num +
+                    " mEmergencyCallbackModeRegistrant=" + mEmergencyCallbackModeRegistrant +
+                    " mTestingEmergencyCall=" + mTestingEmergencyCall.get());
+        }
+
+        for (int i = 0 ; i < num ; i++) {
+            dc = new DriverCall();
+
+            dc.state                = DriverCall.stateFromCLCC(p.readInt());
+            dc.index                = p.readInt();
+            dc.TOA                  = p.readInt();
+            dc.isMpty               = (0 != p.readInt());
+            dc.isMT                 = (0 != p.readInt());
+            dc.als                  = p.readInt();
+            dc.isVoice              = (0 != p.readInt());
+            isVideo                 = (0 != p.readInt());
+            dc.isVoicePrivacy       = (0 != p.readInt());
+            dc.number               = p.readString();
+            int np                  = p.readInt();
+            dc.numberPresentation   = DriverCall.presentationFromCLIP(np);
+            dc.name                 = p.readString();
+            dc.namePresentation     = p.readInt();
+            int uusInfoPresent      = p.readInt();
+
+            Rlog.d(RILJ_LOG_TAG, "state = " + dc.state);
+            Rlog.d(RILJ_LOG_TAG, "index = " + dc.index);
+            Rlog.d(RILJ_LOG_TAG, "state = " + dc.TOA);
+            Rlog.d(RILJ_LOG_TAG, "isMpty = " + dc.isMpty);
+            Rlog.d(RILJ_LOG_TAG, "isMT = " + dc.isMT);
+            Rlog.d(RILJ_LOG_TAG, "als = " + dc.als);
+            Rlog.d(RILJ_LOG_TAG, "isVoice = " + dc.isVoice);
+            Rlog.d(RILJ_LOG_TAG, "isVideo = " + isVideo);
+            Rlog.d(RILJ_LOG_TAG, "number = " + dc.number);
+            Rlog.d(RILJ_LOG_TAG, "numberPresentation = " + np);
+            Rlog.d(RILJ_LOG_TAG, "name = " + dc.name);
+            Rlog.d(RILJ_LOG_TAG, "namePresentation = " + dc.namePresentation);
+            Rlog.d(RILJ_LOG_TAG, "uusInfoPresent = " + uusInfoPresent);
+
+            if (uusInfoPresent == 1) {
+                dc.uusInfo = new UUSInfo();
+                dc.uusInfo.setType(p.readInt());
+                dc.uusInfo.setDcs(p.readInt());
+                byte[] userData = p.createByteArray();
+                dc.uusInfo.setUserData(userData);
+                Rlog
+                .v(RILJ_LOG_TAG, String.format("Incoming UUS : type=%d, dcs=%d, length=%d",
+                        dc.uusInfo.getType(), dc.uusInfo.getDcs(),
+                        dc.uusInfo.getUserData().length));
+                Rlog.v(RILJ_LOG_TAG, "Incoming UUS : data (string)="
+                        + new String(dc.uusInfo.getUserData()));
+                Rlog.v(RILJ_LOG_TAG, "Incoming UUS : data (hex): "
+                        + IccUtils.bytesToHexString(dc.uusInfo.getUserData()));
+            } else {
+                Rlog.v(RILJ_LOG_TAG, "Incoming UUS : NOT present!");
+            }
+
+            // Make sure there's a leading + on addresses with a TOA of 145
+            dc.number = PhoneNumberUtils.stringFromStringAndTOA(dc.number, dc.TOA);
+
+            response.add(dc);
+
+            if (dc.isVoicePrivacy) {
+                mVoicePrivacyOnRegistrants.notifyRegistrants();
+                Rlog.d(RILJ_LOG_TAG, "InCall VoicePrivacy is enabled");
+            } else {
+                mVoicePrivacyOffRegistrants.notifyRegistrants();
+                Rlog.d(RILJ_LOG_TAG, "InCall VoicePrivacy is disabled");
+            }
+        }
+
+        Collections.sort(response);
+
+        if ((num == 0) && mTestingEmergencyCall.getAndSet(false)) {
+            if (mEmergencyCallbackModeRegistrant != null) {
+                Rlog.d(RILJ_LOG_TAG, "responseCallList: call ended, testing emergency call," +
+                            " notify ECM Registrants");
+                mEmergencyCallbackModeRegistrant.notifyRegistrant();
+            }
+         }
+
+        return response;
+    }
+
+    @Override
+    protected Object
     responseSignalStrength(Parcel p) {
         // When SIM is PIN-unlocked, the RIL responds with APPSTATE_UNKNOWN and
         // does not follow up with RIL_UNSOL_RESPONSE_SIM_STATUS_CHANGED. We
