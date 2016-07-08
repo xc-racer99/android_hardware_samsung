@@ -37,9 +37,6 @@
 #include <hardware/gralloc.h>
 #include <hardware/hardware.h>
 #include <hardware/hwcomposer.h>
-#if defined(BOARD_USES_HDMI)
-#include "hardware/hdmi.h"
-#endif
 
 #include "s5p_fimc.h"
 #include "sec_lcd.h"
@@ -128,9 +125,6 @@ struct hwc_context_t {
     unsigned int              num_of_fb_layer;
     unsigned int              num_of_hwc_layer;
     unsigned int              num_of_fb_layer_prev;
-#if defined(BOARD_USES_HDMI)
-    hdmi_device_t*            hdmi;
-#endif
 };
 
 int window_open(struct hwc_win_info_t *win, int id);
