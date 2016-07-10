@@ -42,6 +42,7 @@
 #include "sec_lcd.h"
 #include "sec_format.h"
 #include "sec_utils.h"
+
 #include "hal_public.h"
 
 #define GRALLOC_USAGE_PHYS_CONTIG GRALLOC_USAGE_PRIVATE_1
@@ -113,7 +114,7 @@ enum {
 };
 
 struct hwc_context_t {
-    hwc_composer_device_1_t     device;
+    hwc_composer_device_1_t   device;
 
     /* our private state goes below here */
     struct hwc_win_info_t     win[NUM_OF_WIN];

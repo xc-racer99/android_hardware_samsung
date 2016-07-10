@@ -23,8 +23,6 @@
  *
  */
 
-#define HWC_REMOVE_DEPRECATED_VERSIONS 1
-
 #include <sys/resource.h>
 #include <cutils/log.h>
 #include <cutils/atomic.h>
@@ -81,9 +79,9 @@ static int set_src_dst_info(hwc_layer_1_t *cur,
     src_img->w       = prev_handle->iWidth;
     src_img->h       = prev_handle->iHeight;
     src_img->format  = prev_handle->iFormat;
-    src_img->base    = NULL;
+    src_img->base    = 0;
     src_img->offset  = 0;
-    src_img->mem_id  =0;
+    src_img->mem_id  = 0;
 
     src_img->mem_type = HWC_PHYS_MEM_TYPE;
     src_img->w = (src_img->w + 15) & (~15);
@@ -216,8 +214,8 @@ static void reset_win_rect_info(hwc_win_info_t *win)
     return;
 }
 
-static int hwc_prepare(hwc_composer_device_1_t *dev,
-                       size_t numDisplays, hwc_display_contents_1_t** displays)
+static int hwc_prepare(hwc_composer_device_1_t *dev, size_t numDisplays,
+                       hwc_display_contents_1_t **displays)
 {
 
     struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
@@ -225,14 +223,8 @@ static int hwc_prepare(hwc_composer_device_1_t *dev,
     int compositionType = 0;
     int ret;
 
-    // Compat
-    hwc_display_contents_1_t* list = NULL;
-    if (numDisplays > 0) {
-        list = displays[0];
-    }
-
     //if geometry is not changed, there is no need to do any work here
-    if( !list || (!(list->flags & HWC_GEOMETRY_CHANGED)))
+    if(!(displays[0]->flags & HWC_GEOMETRY_CHANGED))
         return 0;
 
     //all the windows are free here....
@@ -242,10 +234,10 @@ static int hwc_prepare(hwc_composer_device_1_t *dev,
     }
     ctx->num_of_hwc_layer = 0;
     ctx->num_of_fb_layer = 0;
-    ALOGV("%s:: hwc_prepare list->numHwLayers %d", __func__, list->numHwLayers);
+    ALOGV("%s:: hwc_prepare displays[0]->numHwLayers %d", __func__, displays[0]->numHwLayers);
 
-    for (int i = 0; i < list->numHwLayers ; i++) {
-        hwc_layer_1_t* cur = &list->hwLayers[i];
+    for (int i = 0; i < displays[0]->numHwLayers ; i++) {
+        hwc_layer_1_t* cur = &displays[0]->hwLayers[i];
 
         if (overlay_win_cnt < NUM_OF_WIN) {
             compositionType = get_hwc_compos_decision(cur);
@@ -272,9 +264,9 @@ static int hwc_prepare(hwc_composer_device_1_t *dev,
         }
     }
 
-    if(list->numHwLayers != (ctx->num_of_fb_layer + ctx->num_of_hwc_layer))
+    if(displays[0]->numHwLayers != (ctx->num_of_fb_layer + ctx->num_of_hwc_layer))
         ALOGV("%s:: numHwLayers %d num_of_fb_layer %d num_of_hwc_layer %d ",
-                __func__, list->numHwLayers, ctx->num_of_fb_layer,
+                __func__, displays[0]->numHwLayers, ctx->num_of_fb_layer,
                 ctx->num_of_hwc_layer);
 
     if (overlay_win_cnt < NUM_OF_WIN) {
@@ -288,7 +280,8 @@ static int hwc_prepare(hwc_composer_device_1_t *dev,
 }
 
 static int hwc_set(hwc_composer_device_1_t *dev,
-                   size_t numDisplays, hwc_display_contents_1_t** displays)
+				   size_t numDisplays,
+                   hwc_display_contents_1_t **displays)
 {
     struct hwc_context_t *ctx = (struct hwc_context_t *)dev;
     unsigned int phyAddr[MAX_NUM_PLANES];
@@ -301,12 +294,7 @@ static int hwc_set(hwc_composer_device_1_t *dev,
     struct sec_rect src_rect;
     struct sec_rect dst_rect;
 
-    // Only support one display
-    hwc_display_t dpy = displays[0]->dpy;
-    hwc_surface_t sur = displays[0]->sur;
-    hwc_display_contents_1_t* list = displays[0];
-
-    if (dpy == NULL && sur == NULL && list == NULL) {
+    if (displays[0]->dpy == NULL && displays[0]->sur == NULL) {
         // release our resources, the screen is turning off
         // in our case, there is nothing to do.
         ctx->num_of_fb_layer_prev = 0;
@@ -339,14 +327,14 @@ static int hwc_set(hwc_composer_device_1_t *dev,
 
     ctx->num_of_fb_layer_prev = ctx->num_of_fb_layer;
 
-    if (need_swap_buffers || !list) {
-        EGLBoolean sucess = eglSwapBuffers((EGLDisplay)dpy, (EGLSurface)sur);
+    if (need_swap_buffers || !displays[0]->numHwLayers) {
+        EGLBoolean sucess = eglSwapBuffers((EGLDisplay)displays[0]->dpy, (EGLSurface)displays[0]->sur);
         if (!sucess) {
             return HWC_EGL_ERROR;
         }
     }
 
-    if (!list) {
+    if (!displays[0]->numHwLayers) {
         /* turn off the all windows */
         for (int i = 0; i < NUM_OF_WIN; i++) {
             window_hide(&ctx->win[i]);
@@ -364,10 +352,9 @@ static int hwc_set(hwc_composer_device_1_t *dev,
     for (uint32_t i = 0; i < ctx->num_of_hwc_layer; i++) {
         win = &ctx->win[i];
         if (win->status == HWC_WIN_RESERVED) {
-            cur = &list->hwLayers[win->layer_index];
+            cur = &displays[0]->hwLayers[win->layer_index];
 
             if (cur->compositionType == HWC_OVERLAY) {
-
                 ret = gpsGrallocModule->GetPhyAddrs(gpsGrallocModule,
                         cur->handle, phyAddr);
                 if (ret) {
@@ -437,30 +424,14 @@ static int hwc_set(hwc_composer_device_1_t *dev,
     return 0;
 }
 
-static void hwc_registerProcs(struct hwc_composer_device_1* dev,
+static void hwc_registerProcs(hwc_composer_device_1_t* dev,
         hwc_procs_t const* procs)
 {
     struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
     ctx->procs = const_cast<hwc_procs_t *>(procs);
 }
 
-static int hwc_blank(struct hwc_composer_device_1 *dev,
-        int disp, int blank)
-{
-    struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
-    if (blank) {
-        // release our resources, the screen is turning off
-        // in our case, there is nothing to do.
-        ctx->num_of_fb_layer_prev = 0;
-        return 0;
-    }
-    else {
-        // No need to unblank, will unblank on set()
-        return 0;
-    }
-}
-
-static int hwc_query(struct hwc_composer_device_1* dev,
+static int hwc_query(hwc_composer_device_1_t* dev,
         int what, int* value)
 {
     struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
@@ -492,8 +463,8 @@ pthread_mutex_t vsync_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t vsync_condition = PTHREAD_COND_INITIALIZER;
 #endif
 
-static int hwc_eventControl(struct hwc_composer_device_1* dev, int dpy,
-        int event, int enabled)
+static int hwc_eventControl(hwc_composer_device_1_t* dev,
+        int disp, int event, int enabled)
 {
     struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
 
@@ -559,6 +530,7 @@ static void *hwc_vsync_thread(void *data)
 #ifndef VSYNC_IOCTL
     uevent_init();
 #endif
+
     while(true) {
 #ifdef VSYNC_IOCTL
         // Only continue if hwc_eventControl is enabled, otherwise
@@ -624,6 +596,77 @@ static int hwc_device_close(struct hw_device_t *dev)
     return ret;
 }
 
+static int hwc_blank(struct hwc_composer_device_1* dev, int disp, int blank)
+{
+    struct hwc_context_t* ctx = (struct hwc_context_t*)dev;
+    if (blank) {
+        // release our resources, the screen is turning off
+        // in our case, there is nothing to do.
+        ctx->num_of_fb_layer_prev = 0;
+        return 0;
+    }
+    else {
+        // No need to unblank, will unblank on set()
+        return 0;
+    }
+
+    return 0;
+}
+
+static int hwc_getDisplayConfigs(struct hwc_composer_device_1* dev, int disp,
+        uint32_t* configs, size_t* numConfigs)
+{
+    if(disp != HWC_DISPLAY_PRIMARY)
+        return -EINVAL;
+
+    if(numConfigs)
+        *numConfigs = 1;
+
+    if(configs)
+        configs[0] = 0;
+
+    return 0;
+}
+
+static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
+        uint32_t config, const uint32_t* attributes, int32_t* values)
+{
+    if(disp != HWC_DISPLAY_PRIMARY)
+        return -EINVAL;
+
+    if(config != 0)
+        return -EINVAL;
+
+    while(*attributes != HWC_DISPLAY_NO_ATTRIBUTE)
+    {
+        switch(*attributes)
+        {
+            case HWC_DISPLAY_VSYNC_PERIOD:
+                *values = 1000000000.0 / gpsGrallocModule->psFrameBufferDevice->base.fps;
+                break;
+            case HWC_DISPLAY_WIDTH:
+                *values = gpsGrallocModule->psFrameBufferDevice->base.width;
+                break;
+            case HWC_DISPLAY_HEIGHT:
+                *values = gpsGrallocModule->psFrameBufferDevice->base.height;
+                break;
+            case HWC_DISPLAY_DPI_X:
+                *values = gpsGrallocModule->psFrameBufferDevice->base.xdpi;
+                break;
+            case HWC_DISPLAY_DPI_Y:
+                *values = gpsGrallocModule->psFrameBufferDevice->base.ydpi;
+                break;
+            default:
+                return -EINVAL;
+        }
+
+        attributes++;
+        values++;
+    }
+
+    return 0;
+}
+
 static int hwc_device_open(const struct hw_module_t* module, const char* name,
         struct hw_device_t** device)
 {
@@ -655,10 +698,12 @@ static int hwc_device_open(const struct hw_module_t* module, const char* name,
 
     dev->device.prepare = hwc_prepare;
     dev->device.set = hwc_set;
+    dev->device.registerProcs = hwc_registerProcs;
+    dev->device.query = hwc_query;
     dev->device.eventControl = hwc_eventControl;
     dev->device.blank = hwc_blank;
-    dev->device.query = hwc_query;
-    dev->device.registerProcs = hwc_registerProcs;
+    dev->device.getDisplayConfigs = hwc_getDisplayConfigs;
+    dev->device.getDisplayAttributes = hwc_getDisplayAttributes;
 
     *device = &dev->device.common;
 
