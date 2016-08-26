@@ -823,7 +823,8 @@ OMX_BOOL SEC_Preprocessor_InputData(OMX_COMPONENTTYPE *pOMXComponent)
     }
 
     if (flagEOF == OMX_TRUE) {
-        if (pSECComponent->checkTimeStamp.needSetStartTimeStamp == OMX_TRUE) {
+        if ((pSECComponent->checkTimeStamp.needSetStartTimeStamp == OMX_TRUE) &&
+        (inputData->nFlags & OMX_BUFFERFLAG_CODECCONFIG) != OMX_BUFFERFLAG_CODECCONFIG) {
             pSECComponent->checkTimeStamp.needCheckStartTimeStamp = OMX_TRUE;
             pSECComponent->checkTimeStamp.startTimeStamp = inputData->timeStamp;
             pSECComponent->checkTimeStamp.nStartFlags = inputData->nFlags;
