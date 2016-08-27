@@ -394,6 +394,9 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
                 rr.mResult.sendToTarget();
             }
         }
+
+        mEventLog.writeOnRilSolicitedResponse(rr.mSerial, error, rr.mRequest, ret);
+
         return rr;
     }
 
@@ -421,6 +424,8 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
         }
 
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
+
+        mEventLog.writeRilDial(rr.mSerial, clirMode, uusInfo);
 
         send(rr);
     }
@@ -799,6 +804,8 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
                 + " : " + networkType);
 
+        mEventLog.writeSetPreferredNetworkType(networkType);
+
         send(rr);
     }
 
@@ -831,6 +838,8 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
         constructGsmSendSmsRilRequest(rr, smscPDU, pdu);
 
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
+
+        mEventLog.writeRilSendSms(rr.mSerial, rr.mRequest);
 
         send(rr);
     }
