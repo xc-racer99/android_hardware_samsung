@@ -133,7 +133,7 @@ OMX_ERRORTYPE SEC_OSAL_ThreadCancel(OMX_HANDLETYPE threadHandle)
         return OMX_ErrorBadParameter;
 
     /* thread_cancel(thread->pthread); */
-    pthread_exit(thread->pthread);
+    pthread_exit((void *)thread->pthread);
     pthread_join(thread->pthread, NULL);
 
     SEC_OSAL_Free(thread);
