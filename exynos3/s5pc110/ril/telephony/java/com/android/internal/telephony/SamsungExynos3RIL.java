@@ -121,7 +121,7 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
 
     @Override
     protected RILRequest
-    processSolicited (Parcel p) {
+    processSolicited (Parcel p, int type) {
         int serial, error;
 
         serial = p.readInt();
@@ -277,7 +277,6 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
             case RIL_REQUEST_SIM_OPEN_CHANNEL: ret  = responseInts(p); break;
             case RIL_REQUEST_SIM_CLOSE_CHANNEL: ret  = responseVoid(p); break;
             case RIL_REQUEST_SIM_TRANSMIT_APDU_CHANNEL: ret = responseICC_IO(p); break;
-            case RIL_REQUEST_SIM_GET_ATR: ret = responseString(p); break;
             case RIL_REQUEST_NV_READ_ITEM: ret = responseString(p); break;
             case RIL_REQUEST_NV_WRITE_ITEM: ret = responseVoid(p); break;
             case RIL_REQUEST_NV_WRITE_CDMA_PRL: ret = responseVoid(p); break;
@@ -444,7 +443,7 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
 
     @Override
     protected void
-    processUnsolicited (Parcel p) {
+    processUnsolicited (Parcel p, int type) {
         int response;
         Object ret;
         int dataPosition = p.dataPosition();
@@ -471,14 +470,13 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
         case RIL_UNSOL_SAMSUNG_UNKNOWN_MAGIC_REQUEST: ret = responseVoid(p); break;
         case RIL_UNSOL_SAMSUNG_UNKNOWN_MAGIC_REQUEST_2: ret = responseVoid(p); break;
         case RIL_UNSOL_AM: ret = responseString(p); break;
-        case RIL_UNSOL_STK_SEND_SMS_RESULT: ret = responseInts(p); break; // Samsung STK
 
         default:
             // Rewind the Parcel
             p.setDataPosition(dataPosition);
 
             // Forward responses that we are not overriding to the super class
-            super.processUnsolicited(p);
+            super.processUnsolicited(p, type);
             return;
         }
 
@@ -566,18 +564,6 @@ public class SamsungExynos3RIL extends RIL implements CommandsInterface {
             } catch (IOException e) {
                 e.printStackTrace();
                 Rlog.e(RILJ_LOG_TAG, "am " + amString + " could not be executed.");
-            }
-            break;
-        // Samsung STK
-        case RIL_UNSOL_STK_SEND_SMS_RESULT:
-            if (Resources.getSystem().
-                    getBoolean(com.android.internal.R.bool.config_samsung_stk)) {
-                if (RILJ_LOGD) unsljLogRet(response, ret);
-
-                if (mCatSendSmsResultRegistrant != null) {
-                    mCatSendSmsResultRegistrant.notifyRegistrant(
-                            new AsyncResult (null, ret, null));
-                }
             }
             break;
         }
