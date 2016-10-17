@@ -41,14 +41,14 @@ static struct hw_module_methods_t hwc_module_methods = {
 };
 
 hwc_module_t HAL_MODULE_INFO_SYM = {
-    common: {
-        tag: HARDWARE_MODULE_TAG,
-        module_api_version: HWC_MODULE_API_VERSION_0_1,
-        hal_api_version: HARDWARE_HAL_API_VERSION,
-        id: HWC_HARDWARE_MODULE_ID,
-        name: "Samsung S5PC11X hwcomposer module",
-        author: "SAMSUNG",
-        methods: &hwc_module_methods,
+    .common = {
+        .tag = HARDWARE_MODULE_TAG,
+        .module_api_version = HWC_MODULE_API_VERSION_0_1,
+        .hal_api_version = HARDWARE_HAL_API_VERSION,
+        .id = HWC_HARDWARE_MODULE_ID,
+        .name = "Samsung S5PC11X hwcomposer module",
+        .author = "SAMSUNG",
+        .methods = &hwc_module_methods,
     }
 };
 
