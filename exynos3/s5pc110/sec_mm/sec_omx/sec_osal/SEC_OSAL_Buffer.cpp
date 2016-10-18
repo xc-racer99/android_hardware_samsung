@@ -47,6 +47,7 @@ extern "C" {
 }
 #endif
 
+#include <cutils/native_handle.h>
 #include <cutils/properties.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicBufferMapper.h>
@@ -65,6 +66,11 @@ struct AndroidNativeBuffersParams {
     OMX_U32 nSize;
     OMX_VERSIONTYPE nVersion;
     OMX_U32 nPortIndex;
+};
+
+struct addrs {
+    MetadataBufferType type;
+    native_handle_t* pHandle;
 };
 
 #ifdef USE_ANDROID_EXTENSION
@@ -398,9 +404,17 @@ OMX_ERRORTYPE preprocessMetaDataInBuffers(OMX_HANDLETYPE hComponent, OMX_BYTE pI
     pSECPort = &pSECComponent->pSECPort[INPUT_PORT_INDEX];
 
     type = getMetadataBufferType(pInputDataBuffer);
-    if (type == kMetadataBufferTypeCameraSource) {
-        SEC_OSAL_Memcpy(&pInputInfo->YPhyAddr, pInputDataBuffer + 4, sizeof(void *));
-        SEC_OSAL_Memcpy(&pInputInfo->CPhyAddr, pInputDataBuffer + 4 + sizeof(void *), sizeof(void *));
+    if (type == kMetadataBufferTypeNativeHandleSource) {
+        struct addrs *addrs = (struct addrs*)pInputDataBuffer;
+
+        if (addrs->pHandle->numInts != 3) {
+            SEC_OSAL_Log(SEC_LOG_ERROR, "numints is not 3, but %d\n", addrs->pHandle->numInts);
+            ret = OMX_ErrorBadParameter;
+            goto EXIT;
+        }
+
+        SEC_OSAL_Memcpy(&pInputInfo->YPhyAddr, &addrs->pHandle->data[0], sizeof(void *));
+        SEC_OSAL_Memcpy(&pInputInfo->CPhyAddr, &addrs->pHandle->data[1], sizeof(void *));
     } else if (type == kMetadataBufferTypeGrallocSource){
         IMG_gralloc_module_public_t *module = (IMG_gralloc_module_public_t *)pSECPort->pIMGGrallocModule;
         OMX_PTR pUnreadableBuffer = NULL;
