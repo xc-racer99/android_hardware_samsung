@@ -82,16 +82,26 @@ int sysfs_read(const char *path, char *buf, size_t size)
   return len;
 }
 
+static bool check_governor() {
+    struct stat s;
+    int err = stat(CPUFREQ_INTERACTIVE, &s);
+    if (err != 0)
+        return false;
+    return S_ISDIR(s.st_mode);
+}
+
 static void s5pc110_power_init(struct power_module *module)
 {
     struct s5pc110_power_module *s5pc110 = (struct s5pc110_power_module *) module;
 
-    sysfs_write(CPUFREQ_INTERACTIVE "timer_rate", "20000");
-    sysfs_write(CPUFREQ_INTERACTIVE "min_sample_time", "60000");
-    sysfs_write(CPUFREQ_INTERACTIVE "hispeed_freq", "1000000");
-    sysfs_write(CPUFREQ_INTERACTIVE "target_loads", "70 800000:80 1000000:90");
-    sysfs_write(CPUFREQ_INTERACTIVE "go_hispeed_load", "99");
-    sysfs_write(CPUFREQ_INTERACTIVE "above_hispeed_delay", "80000");
+    if (check_governor()) {
+        sysfs_write(CPUFREQ_INTERACTIVE "timer_rate", "20000");
+        sysfs_write(CPUFREQ_INTERACTIVE "min_sample_time", "60000");
+        sysfs_write(CPUFREQ_INTERACTIVE "hispeed_freq", "1000000");
+        sysfs_write(CPUFREQ_INTERACTIVE "target_loads", "70 800000:80 1000000:90");
+        sysfs_write(CPUFREQ_INTERACTIVE "go_hispeed_load", "99");
+        sysfs_write(CPUFREQ_INTERACTIVE "above_hispeed_delay", "80000");
+    }
 
     ALOGI("Initialized successfully");
     s5pc110->inited = 1;
@@ -163,12 +173,12 @@ static void s5pc110_power_hint(struct power_module *module, power_hint_t hint,
 
     switch (hint) {
     case POWER_HINT_INTERACTION:
-        if (boostpulse_open(s5pc110) >= 0) {
-	    len = write(s5pc110->boostpulse_fd, "1", 1);
+        if (check_governor() && boostpulse_open(s5pc110) >= 0) {
+	        len = write(s5pc110->boostpulse_fd, "1", 1);
 
-	    if (len < 0) {
-	        strerror_r(errno, buf, sizeof(buf));
-		ALOGE("Error writing to %s: %s\n", BOOSTPULSE_PATH, buf);
+	        if (len < 0) {
+	            strerror_r(errno, buf, sizeof(buf));
+		    ALOGE("Error writing to %s: %s\n", BOOSTPULSE_PATH, buf);
 	    }
 	}
         break;
