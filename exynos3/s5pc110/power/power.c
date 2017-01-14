@@ -98,8 +98,8 @@ static void s5pc110_power_init(struct power_module *module)
         sysfs_write(CPUFREQ_INTERACTIVE "timer_rate", "20000");
         sysfs_write(CPUFREQ_INTERACTIVE "min_sample_time", "60000");
         sysfs_write(CPUFREQ_INTERACTIVE "hispeed_freq", "1000000");
-        sysfs_write(CPUFREQ_INTERACTIVE "target_loads", "70 800000:80 1000000:90");
-        sysfs_write(CPUFREQ_INTERACTIVE "go_hispeed_load", "99");
+        sysfs_write(CPUFREQ_INTERACTIVE "target_loads", "70");
+        sysfs_write(CPUFREQ_INTERACTIVE "go_hispeed_load", "75");
         sysfs_write(CPUFREQ_INTERACTIVE "above_hispeed_delay", "80000");
     }
 
