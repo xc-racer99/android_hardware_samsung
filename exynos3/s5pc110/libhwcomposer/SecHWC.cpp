@@ -475,7 +475,7 @@ static int hwc_eventControl(hwc_composer_device_1_t* dev,
         if (err < 0)
             return -errno;
 
-#if VSYNC_IOCTL
+#ifdef VSYNC_IOCTL
         // Enable or disable the ability for the worker thread
         // to ask for VSYNC events from the video driver
         pthread_mutex_lock(&vsync_mutex);
