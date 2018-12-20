@@ -29,9 +29,10 @@
  */
 
 #include <hardware/gralloc.h>
+#include <hardware/memtrack.h>
 
-#define ALIGN(x,a) (((x) + (a) - 1L) & ~((a) - 1L))
-#define HW_ALIGN   32
+#define ALIGN(x,a)	(((x) + (a) - 1L) & ~((a) - 1L))
+#define HW_ALIGN	32
 
 /* This can be tuned down as appropriate for the SOC.
  *
@@ -41,94 +42,146 @@
  */
 #define MAX_SUB_ALLOCS 3
 
+/* Format is not YCbCr (e.g. a RGB format) - bIsYUVFormat should be false */
+#define YUV_CHROMA_ORDER_NONE 0
+/* Cb follows Y */
+#define YUV_CHROMA_ORDER_CBCR_UV 1
+/* Cr follows Y */
+#define YUV_CHROMA_ORDER_CRCB_VU 2
+
 typedef struct
 {
-    native_handle_t base;
+	native_handle_t base;
 
-    /* These fields can be sent cross process. They are also valid
-     * to duplicate within the same process.
-     *
-     * A table is stored within psPrivateData on gralloc_module_t (this
-     * is obviously per-process) which maps stamps to a mapped
-     * PVRSRV_CLIENT_MEM_INFO in that process. Each map entry has a lock
-     * count associated with it, satisfying the requirements of the
-     * Android API. This also prevents us from leaking maps/allocations.
-     *
-     * This table has entries inserted either by alloc()
-     * (alloc_device_t) or map() (gralloc_module_t). Entries are removed
-     * by free() (alloc_device_t) and unmap() (gralloc_module_t).
-     *
-     * As a special case for framebuffer_device_t, framebuffer_open()
-     * will add and framebuffer_close() will remove from this table.
-     */
+	/* These fields can be sent cross process. They are also valid
+	 * to duplicate within the same process.
+	 *
+	 * A table is stored within psPrivateData on gralloc_module_t (this
+	 * is obviously per-process) which maps stamps to a mapped
+	 * PVRSRV_CLIENT_MEM_INFO in that process. Each map entry has a lock
+	 * count associated with it, satisfying the requirements of the
+	 * Android API. This also prevents us from leaking maps/allocations.
+	 *
+	 * This table has entries inserted either by alloc()
+	 * (alloc_device_t) or map() (gralloc_module_t). Entries are removed
+	 * by free() (alloc_device_t) and unmap() (gralloc_module_t).
+	 *
+	 * As a special case for framebuffer_device_t, framebuffer_open()
+	 * will add and framebuffer_close() will remove from this table.
+	 */
 
 #define IMG_NATIVE_HANDLE_NUMFDS MAX_SUB_ALLOCS
-    /* The `fd' field is used to "export" a meminfo to another process.
-     * Therefore, it is allocated by alloc_device_t, and consumed by
-     * gralloc_module_t. The framebuffer_device_t does not need a handle,
-     * and the special value IMG_FRAMEBUFFER_FD is used instead.
-     */
-    int fd[MAX_SUB_ALLOCS];
+	/* The `fd' field is used to "export" a meminfo to another process.
+	 * Therefore, it is allocated by alloc_device_t, and consumed by
+	 * gralloc_module_t. The framebuffer_device_t does not need a handle,
+	 * and the special value IMG_FRAMEBUFFER_FD is used instead.
+	 */
+	int fd[MAX_SUB_ALLOCS];
 
-#define IMG_NATIVE_HANDLE_NUMINTS ((sizeof(unsigned long long) / sizeof(int)) + 5)
-    /* A KERNEL unique identifier for any exported kernel meminfo. Each
-     * exported kernel meminfo will have a unique stamp, but note that in
-     * userspace, several meminfos across multiple processes could have
-     * the same stamp. As the native_handle can be dup(2)'d, there could be
-     * multiple handles with the same stamp but different file descriptors.
-     */
-    unsigned long long ui64Stamp;
+#define IMG_NATIVE_HANDLE_NUMINTS \
+	((sizeof(unsigned long long) / sizeof(int)) + 5 + MAX_SUB_ALLOCS + 1)
+	/* A KERNEL unique identifier for any exported kernel meminfo. Each
+	 * exported kernel meminfo will have a unique stamp, but note that in
+	 * userspace, several meminfos across multiple processes could have
+	 * the same stamp. As the native_handle can be dup(2)'d, there could be
+	 * multiple handles with the same stamp but different file descriptors.
+	 */
+	unsigned long long ui64Stamp;
 
-    /* This is used for buffer usage validation when locking a buffer,
-     * and also in WSEGL (for the composition bypass feature).
-     */
-    int usage;
+	/* This is used for buffer usage validation when locking a buffer,
+	 * and also in WSEGL (for the composition bypass feature).
+	 */
+	int usage;
 
-    //int dummy;
-    /* In order to do efficient cache flushes we need the buffer dimensions
-     * and format. These are available on the ANativeWindowBuffer,
-     * but the platform doesn't pass them down to the graphics HAL.
-     *
-     * These fields are also used in the composition bypass. In this
-     * capacity, these are the "real" values for the backing allocation.
-     */
-    int iWidth;
-    int iHeight;
-    int iFormat;
-    unsigned int uiBpp;
+	/* In order to do efficient cache flushes we need the buffer dimensions
+	 * and format. These are available on the ANativeWindowBuffer,
+	 * but the platform doesn't pass them down to the graphics HAL.
+	 */
+	int iWidth;
+	int iHeight;
+	int iFormat;
+	unsigned int uiBpp;
+
+	/* The ion allocation path doesn't allow for the allocation size and
+	 * mapping flags to be communicated cross-process automatically.
+	 * Cache these here so we can map buffers in client processes.
+	 */
+	unsigned int uiAllocSize[MAX_SUB_ALLOCS];
+	unsigned int uiFlags;
 }
 __attribute__((aligned(sizeof(int)),packed)) IMG_native_handle_t;
 
 typedef struct
 {
-    framebuffer_device_t base;
-
-    /* The HWC was loaded. post() is no longer responsible for presents */
-    int bBypassPost;
-
-    /* Custom-blit components in lieu of overlay hardware */
-    int (*Blit)(framebuffer_device_t *device, buffer_handle_t src,
-                buffer_handle_t dest, int w, int h, int x, int y);
-
-    /* HWC path for present posts */
-    int (*Post2)(framebuffer_device_t *fb, buffer_handle_t *buffers,
-                 int num_buffers, void *data, int data_length);
+	int l, t, w, h;
 }
-IMG_framebuffer_device_public_t;
+IMG_write_lock_rect_t;
+
+typedef int (*IMG_buffer_format_compute_params_pfn)(
+	unsigned int uiPlane, int *piWidth, int *piHeight,
+	int *piStride, int *piVStride, unsigned long *pulPlaneOffset);
+
+typedef struct IMG_buffer_format_public_t
+{
+	/* Buffer formats are returned as a linked list */
+	struct IMG_buffer_format_public_t *psNext;
+
+	/* HAL_PIXEL_FORMAT_... enumerant */
+	int iHalPixelFormat;
+
+	/* WSEGL_PIXELFORMAT_... enumerant */
+	int iWSEGLPixelFormat;
+
+	/* Friendly name for format */
+	const char *const szName;
+
+	/* Bits (not bytes) per pixel */
+	unsigned int uiBpp;
+
+	/* Supported HW usage bits. If this is GRALLOC_USAGE_HW_MASK, all usages
+	 * are supported. Used for HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
+	 */
+	int iSupportedUsage;
+
+	/* YUV output format */
+	int bIsYUVFormat;
+
+	/* YCBCR_ORDERING_* defined the order of the Cb/Cr values */
+	int eYUVChromaOrder;
+
+	/* Utility function for adjusting YUV per-plane parameters */
+	IMG_buffer_format_compute_params_pfn pfnComputeParams;
+}
+IMG_buffer_format_public_t;
+
+typedef struct
+{
+	/* Base memtrack record, copied to caller */
+	struct memtrack_record	base;
+
+	/* Record type, for filtering cached records */
+	enum memtrack_type		eType;
+
+	/* Process ID, for filtering cached records */
+	pid_t					pid;
+}
+IMG_memtrack_record_public_t;
 
 typedef struct IMG_gralloc_module_public_t
 {
-    gralloc_module_t base;
+	gralloc_module_t base;
 
-    /* If the framebuffer has been opened, this will point to the
-     * framebuffer device data required by the allocator, WSEGL
-     * modules and composerhal.
-     */
-    IMG_framebuffer_device_public_t *psFrameBufferDevice;
+	/* This function is deprecated and might be NULL. Do not use it. */
+	int (*GetPhyAddrs)(gralloc_module_t const* module,
+					   buffer_handle_t handle, void **ppvPhyAddr);
 
-    int (*GetPhyAddrs)(struct IMG_gralloc_module_public_t const* module,
-                       buffer_handle_t handle,
-                       unsigned int auiPhyAddr[MAX_SUB_ALLOCS]);
+	/* Obtain HAL's registered format list */
+	const IMG_buffer_format_public_t *(*GetBufferFormats)(void);
+
+	int (*GetMemTrackRecords)(struct IMG_gralloc_module_public_t const *module,
+							  IMG_memtrack_record_public_t **ppsRecords,
+							  size_t *puNumRecords);
+
 	/* Custom-blit components in lieu of overlay hardware */
 	int (*Blit)(struct IMG_gralloc_module_public_t const *module,
 				buffer_handle_t src,
@@ -137,35 +190,46 @@ typedef struct IMG_gralloc_module_public_t
 	int (*Blit2)(struct IMG_gralloc_module_public_t const *module,
 				 buffer_handle_t src, buffer_handle_t dest,
 				 int w, int h, int x, int y);
+
+	int (*Blit3)(struct IMG_gralloc_module_public_t const *module,
+				 unsigned long long ui64SrcStamp, int iSrcWidth,
+				 int iSrcHeight, int iSrcFormat, int eSrcRotation,
+				 buffer_handle_t dest, int eDestRotation);
 }
 IMG_gralloc_module_public_t;
 
-typedef struct
-{
-    int l, t, w, h;
-}
-IMG_write_lock_rect_t;
+/**
+ * pixel format definitions
+ */
 
-typedef struct IMG_buffer_format_public_t
-{
-    /* Buffer formats are returned as a linked list */
-    struct IMG_buffer_format_public_t *psNext;
+enum {
+    /*
+     * 0x100 - 0x1FF
+     *
+     * This range is reserved for pixel formats that are specific to the HAL
+     * implementation.  Implementations can use any value in this range to
+     * communicate video pixel formats between their HAL modules.  These formats
+     * must not have an alpha channel.  Additionally, an EGLimage created from a
+     * gralloc buffer of one of these formats must be supported for use with the
+     * GL_OES_EGL_image_external OpenGL ES extension.
+     */
 
-    /* HAL_PIXEL_FORMAT_... enumerant */
-    int iHalPixelFormat;
+    /*
+     * These are vendor specific pixel formats, by (informal) convention IMGTec
+     * formats start from the top of the range, TI formats start from the bottom
+     */
+    HAL_PIXEL_FORMAT_TI_NV12    = 0x100,
+    HAL_PIXEL_FORMAT_TI_UNUSED  = 0x101, /* Free for use */
+    HAL_PIXEL_FORMAT_TI_NV12_1D = 0x102,
+    HAL_PIXEL_FORMAT_TI_Y8      = 0x103,
+    HAL_PIXEL_FORMAT_TI_Y16     = 0x104,
+    HAL_PIXEL_FORMAT_TI_UYVY    = 0x105,
+    HAL_PIXEL_FORMAT_BGRX_8888  = 0x1FF,
 
-    /* WSEGL_PIXELFORMAT_... enumerant */
-    int iWSEGLPixelFormat;
+    /* generic format missing from Android list, not specific to vendor implementation */
+    HAL_PIXEL_FORMAT_NV12       = 0x3231564E, // FourCC for NV12
 
-    /* Friendly name for format */
-    const char *const szName;
 
-    /* Bits (not bytes) per pixel */
-    unsigned int uiBpp;
-
-    /* GPU output format (creates EGLConfig for format) */
-    int bGPURenderable;
-}
-IMG_buffer_format_public_t;
+};
 
 #endif /* HAL_PUBLIC_H */
