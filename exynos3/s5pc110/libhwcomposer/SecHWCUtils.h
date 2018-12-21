@@ -47,7 +47,8 @@
 #include "sec_utils.h"
 #include "hal_public.h"
 
-#define GRALLOC_USAGE_PHYS_CONTIG GRALLOC_USAGE_PRIVATE_1
+#define SUPPORT_ANDROID_FRAMEBUFFER_HAL
+#define HAL_PIXEL_FORMAT_C110_NV12 0x100
 
 #define NUM_OF_WIN          (1)
 #define NUM_OF_WIN_BUF      (3)

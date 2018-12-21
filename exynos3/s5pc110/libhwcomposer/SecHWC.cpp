@@ -154,7 +154,8 @@ static int get_hwc_compos_decision(hwc_layer_1_t* cur)
                    ((cur->displayFrame.bottom - cur->displayFrame.top) < 4))
          return compositionType;
 
-    if((prev_handle->usage & GRALLOC_USAGE_PHYS_CONTIG) &&
+    if((prev_handle->iFormat == HAL_PIXEL_FORMAT_C110_NV12) &&
+       (prev_handle->usage & GRALLOC_USAGE_HW_COMPOSER) &&
        (cur->blending == HWC_BLENDING_NONE))
         compositionType = HWC_OVERLAY;
     else
@@ -162,7 +163,7 @@ static int get_hwc_compos_decision(hwc_layer_1_t* cur)
 
     ALOGV("%s::compositionType %d bpp %d format %x usage %x",
             __func__,compositionType, prev_handle->uiBpp, prev_handle->iFormat,
-            prev_handle->usage & GRALLOC_USAGE_PHYS_CONTIG);
+            prev_handle->usage & GRALLOC_USAGE_HW_COMPOSER);
 
     return  compositionType;
 }
@@ -367,14 +368,11 @@ static int hwc_set(hwc_composer_device_1_t *dev,
             cur = &list->hwLayers[win->layer_index];
 
             if (cur->compositionType == HWC_OVERLAY) {
-
-                ret = gpsGrallocModule->GetPhyAddrs(gpsGrallocModule,
-                        cur->handle, phyAddr);
-                if (ret) {
-                    ALOGE("%s::GetPhyAddrs fail : ret=%d\n", __func__, ret);
-                    skipped_window_mask |= (1 << i);
-                    continue;
-                }
+                IMG_native_handle_t *native_handle =
+                    (IMG_native_handle_t *)cur->handle;
+                /* pass through ion handles */
+                phyAddr[0] = native_handle->fd[0];
+                phyAddr[1] = native_handle->fd[1];
 
                 /* initialize the src & dist context for fimc */
                 set_src_dst_info (cur, win, &src_img, &dst_img, &src_rect,
@@ -508,12 +506,65 @@ static int hwc_query(struct hwc_composer_device_1* dev,
         break;
     case HWC_VSYNC_PERIOD:
         // vsync period in nanosecond
-        value[0] = 1000000000.0 / gpsGrallocModule->psFrameBufferDevice->base.fps;
+        value[0] = 1000000000.0 / 60;
         break;
     default:
         // unsupported query
         return -EINVAL;
     }
+    return 0;
+}
+
+static int hwc_getDisplayConfigs(struct hwc_composer_device_1* dev, int disp,
+            uint32_t* configs, size_t* numConfigs)
+{
+    if (!numConfigs || disp != HWC_DISPLAY_PRIMARY)
+        return -EINVAL;
+
+    if (*numConfigs == 0)
+        return 0;
+
+    configs[0] = 0;
+    *numConfigs = 1;
+
+    return 0;
+}
+
+static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
+                                    uint32_t config, const uint32_t* attributes, int32_t* values)
+{
+    if (!attributes || !values)
+        return 0;
+
+    if (disp != 0)
+        return -EINVAL;
+
+    const uint32_t* attribute = attributes;
+    int32_t* value = values;
+
+    while (*attribute != HWC_DISPLAY_NO_ATTRIBUTE) {
+        switch (*attribute) {
+        case HWC_DISPLAY_VSYNC_PERIOD:
+            *value = 1000000000 / 60;
+            break;
+        case HWC_DISPLAY_WIDTH:
+            *value = 480;
+            break;
+        case HWC_DISPLAY_HEIGHT:
+            *value = 800;
+            break;
+        case HWC_DISPLAY_DPI_X:
+            *value = 150;
+            break;
+        case HWC_DISPLAY_DPI_Y:
+            *value = 150;
+            break;
+        }
+
+        attribute++;
+        value++;
+    }
+
     return 0;
 }
 
@@ -688,7 +739,7 @@ static int hwc_device_open(const struct hw_module_t* module, const char* name,
 
     /* initialize the procs */
     dev->device.common.tag = HARDWARE_DEVICE_TAG;
-    dev->device.common.version = HWC_DEVICE_API_VERSION_1_0;
+    dev->device.common.version = HWC_DEVICE_API_VERSION_1_1;
     dev->device.common.module = const_cast<hw_module_t*>(module);
     dev->device.common.close = hwc_device_close;
 
@@ -698,6 +749,8 @@ static int hwc_device_open(const struct hw_module_t* module, const char* name,
     dev->device.blank = hwc_blank;
     dev->device.query = hwc_query;
     dev->device.registerProcs = hwc_registerProcs;
+    dev->device.getDisplayConfigs = hwc_getDisplayConfigs;
+    dev->device.getDisplayAttributes = hwc_getDisplayAttributes;
 
     *device = &dev->device.common;
 
