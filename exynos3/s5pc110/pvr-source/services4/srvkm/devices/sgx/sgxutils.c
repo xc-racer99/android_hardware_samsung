@@ -176,7 +176,9 @@ IMG_VOID SGXTestActivePowerEvent (PVRSRV_DEVICE_NODE	*psDeviceNode,
 			if (psDevInfo->bSGXIdle == IMG_FALSE)
 			{
 				psDevInfo->bSGXIdle = IMG_TRUE;
+#if 0
 				SysSGXIdleEntered();
+#endif
 			}
 		}
 
@@ -729,8 +731,9 @@ PVRSRV_ERROR SGXScheduleCCBCommandKM(PVRSRV_DEVICE_NODE		*psDeviceNode,
 		PVRSRVPowerUnlock(ui32CallerID);
 		return eError;
 	}
-
+#if 0
 	SysSGXCommandPending(psDevInfo->bSGXIdle);
+#endif
 	psDevInfo->bSGXIdle = IMG_FALSE;
 
 	eError = SGXScheduleCCBCommand(psDeviceNode, eCmdType, psCommandData, ui32CallerID, ui32PDumpFlags, hDevMemContext, bLastInScene);

@@ -85,6 +85,14 @@ IMG_VOID IonDeinit(IMG_VOID)
 
 /* Real ion with sharing (s5pv210) */
 
+struct ion_handle {
+	struct kref ref;
+	struct ion_client *client;
+	struct ion_buffer *buffer;
+	struct rb_node node;
+	unsigned int kmap_cnt;
+};
+
 extern struct ion_device *s5p_ion_device;
 struct ion_device *gpsIonDev;
 

@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+OMAP4_NEXT_FOLDER = hardware/samsung/exynos3/s5pc110
+
 PVR_KM_OUT ?= $(KERNEL_OUT)/pvr-km
 PVR_MODULES = $(PVR_KM_OUT)/target/pvrsrvkm.ko \
-              $(PVR_KM_OUT)/target/omaplfb.ko
+              $(PVR_KM_OUT)/target/s3c_lcd.ko
 
 BUILD_PVR: MK_CMD = $(MAKE) ARCH=arm KERNELDIR=$(KERNEL_OUT) OUT=$(PVR_KM_OUT) \
-	-C $(OMAP4_NEXT_FOLDER)/pvr-source/eurasiacon/build/linux2/omap_android
+	-C $(OMAP4_NEXT_FOLDER)/pvr-source/eurasiacon/build/linux2/s5pc110_android
 BUILD_PVR: TARGET_KERNEL_BINARIES
 	$(MK_CMD) clean && $(MK_CMD) $(if $(ARM_CROSS_COMPILE),\
 		$(ARM_CROSS_COMPILE),$(KERNEL_CROSS_COMPILE)) \
