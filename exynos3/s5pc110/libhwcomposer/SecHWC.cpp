@@ -67,146 +67,6 @@ static void dump_layer(hwc_layer_1_t const* l) {
             l->displayFrame.bottom);
 }
 
-static int set_src_dst_info(hwc_layer_1_t *cur,
-                            struct hwc_win_info_t *win,
-                            struct sec_img *src_img,
-                            struct sec_img *dst_img,
-                            struct sec_rect *src_rect,
-                            struct sec_rect *dst_rect,
-                            int win_idx)
-{
-    IMG_native_handle_t *prev_handle = (IMG_native_handle_t *)(cur->handle);
-
-    // set src image
-    src_img->w       = prev_handle->iWidth;
-    src_img->h       = prev_handle->iHeight;
-    src_img->format  = prev_handle->iFormat;
-    src_img->base    = 0;
-    src_img->offset  = 0;
-    src_img->mem_id  = 0;
-
-    src_img->mem_type = HWC_PHYS_MEM_TYPE;
-    src_img->w = (src_img->w + 15) & (~15);
-    src_img->h = (src_img->h + 1) & (~1) ;
-
-    //set src rect
-    src_rect->x = SEC_MAX(cur->sourceCrop.left, 0);
-    src_rect->y = SEC_MAX(cur->sourceCrop.top, 0);
-    src_rect->w = SEC_MAX(cur->sourceCrop.right - cur->sourceCrop.left, 0);
-    src_rect->w = SEC_MIN(src_rect->w, src_img->w - src_rect->x);
-    src_rect->h = SEC_MAX(cur->sourceCrop.bottom - cur->sourceCrop.top, 0);
-    src_rect->h = SEC_MIN(src_rect->h, src_img->h - src_rect->y);
-
-    //set dst image
-    dst_img->w = win->lcd_info.xres;
-    dst_img->h = win->lcd_info.yres;
-
-    switch (win->lcd_info.bits_per_pixel) {
-    case 32:
-        dst_img->format = HAL_PIXEL_FORMAT_RGBX_8888;
-        break;
-    default:
-        dst_img->format = HAL_PIXEL_FORMAT_RGB_565;
-        break;
-    }
-
-    dst_img->base     = win->addr[win->buf_index];
-    dst_img->offset   = 0;
-    dst_img->mem_id   = 0;
-    dst_img->mem_type = HWC_PHYS_MEM_TYPE;
-
-    //set dst rect
-    //fimc dst image will be stored from left top corner
-    dst_rect->x = 0;
-    dst_rect->y = 0;
-    dst_rect->w = win->rect_info.w;
-    dst_rect->h = win->rect_info.h;
-
-    ALOGV("%s::sr_x %d sr_y %d sr_w %d sr_h %d dr_x %d dr_y %d dr_w %d dr_h %d ",
-            __func__, src_rect->x, src_rect->y, src_rect->w, src_rect->h,
-            dst_rect->x, dst_rect->y, dst_rect->w, dst_rect->h);
-
-    return 0;
-}
-
-static int get_hwc_compos_decision(hwc_layer_1_t* cur)
-{
-    if(cur->flags & HWC_SKIP_LAYER || !cur->handle) {
-        ALOGV("%s::is_skip_layer %d cur->handle %x",
-                __func__, cur->flags & HWC_SKIP_LAYER, (uint32_t)cur->handle);
-        return HWC_FRAMEBUFFER;
-    }
-
-    IMG_native_handle_t *prev_handle = (IMG_native_handle_t *)(cur->handle);
-    int compositionType = HWC_FRAMEBUFFER;
-
-    /* check here....if we have any resolution constraints */
-    if (((cur->sourceCrop.right - cur->sourceCrop.left) < 16) ||
-        ((cur->sourceCrop.bottom - cur->sourceCrop.top) < 8))
-        return compositionType;
-
-    if ((cur->transform == HAL_TRANSFORM_ROT_90) ||
-        (cur->transform == HAL_TRANSFORM_ROT_270)) {
-        if(((cur->displayFrame.right - cur->displayFrame.left) < 4)||
-           ((cur->displayFrame.bottom - cur->displayFrame.top) < 8))
-            return compositionType;
-        } else if (((cur->displayFrame.right - cur->displayFrame.left) < 8) ||
-                   ((cur->displayFrame.bottom - cur->displayFrame.top) < 4))
-         return compositionType;
-
-    if((prev_handle->usage & GRALLOC_USAGE_PHYS_CONTIG) &&
-       (cur->blending == HWC_BLENDING_NONE))
-        compositionType = HWC_OVERLAY;
-    else
-        compositionType = HWC_FRAMEBUFFER;
-
-    ALOGV("%s::compositionType %d bpp %d format %x usage %x",
-            __func__,compositionType, prev_handle->uiBpp, prev_handle->iFormat,
-            prev_handle->usage & GRALLOC_USAGE_PHYS_CONTIG);
-
-    return  compositionType;
-}
-
-static int assign_overlay_window(struct hwc_context_t *ctx,
-                                 hwc_layer_1_t *cur,
-                                 int win_idx,
-                                 int layer_idx)
-{
-    struct hwc_win_info_t *win;
-    sec_rect rect;
-    int ret = 0;
-
-    if(NUM_OF_WIN <= win_idx)
-        return -1;
-
-    win = &ctx->win[win_idx];
-
-    rect.x = SEC_MAX(cur->displayFrame.left, 0);
-    rect.y = SEC_MAX(cur->displayFrame.top, 0);
-    rect.w = SEC_MIN(cur->displayFrame.right - rect.x, win->lcd_info.xres - rect.x);
-    rect.h = SEC_MIN(cur->displayFrame.bottom - rect.y, win->lcd_info.yres - rect.y);
-    win->set_win_flag = 0;
-
-    if((rect.x != win->rect_info.x) || (rect.y != win->rect_info.y) ||
-       (rect.w != win->rect_info.w) || (rect.h != win->rect_info.h)){
-            win->rect_info.x = rect.x;
-            win->rect_info.y = rect.y;
-            win->rect_info.w = rect.w;
-            win->rect_info.h = rect.h;
-            win->set_win_flag = 1;
-            win->layer_prev_buf = 0;
-    }
-
-    win->layer_index = layer_idx;
-    win->status = HWC_WIN_RESERVED;
-
-    ALOGV("%s:: win_x %d win_y %d win_w %d win_h %d lay_idx %d win_idx %d",
-            __func__, win->rect_info.x, win->rect_info.y, win->rect_info.w,
-            win->rect_info.h, win->layer_index, win_idx );
-
-    return 0;
-}
-
 static void reset_win_rect_info(hwc_win_info_t *win)
 {
     win->rect_info.x = 0;
@@ -248,25 +108,6 @@ static int hwc_prepare(hwc_composer_device_1_t *dev,
         hwc_layer_1_t* cur = &list->hwLayers[i];
 
         if (overlay_win_cnt < NUM_OF_WIN) {
-            compositionType = get_hwc_compos_decision(cur);
-
-            if (compositionType == HWC_FRAMEBUFFER) {
-                cur->compositionType = HWC_FRAMEBUFFER;
-                ctx->num_of_fb_layer++;
-            } else {
-                ret = assign_overlay_window(ctx, cur, overlay_win_cnt, i);
-                if (ret != 0) {
-                    cur->compositionType = HWC_FRAMEBUFFER;
-                    ctx->num_of_fb_layer++;
-                    continue;
-                }
-
-                cur->compositionType = HWC_OVERLAY;
-                cur->hints = HWC_HINT_CLEAR_FB;
-                overlay_win_cnt++;
-                ctx->num_of_hwc_layer++;
-            }
-        } else {
             cur->compositionType = HWC_FRAMEBUFFER;
             ctx->num_of_fb_layer++;
         }
@@ -367,51 +208,7 @@ static int hwc_set(hwc_composer_device_1_t *dev,
             cur = &list->hwLayers[win->layer_index];
 
             if (cur->compositionType == HWC_OVERLAY) {
-
-                ret = gpsGrallocModule->GetPhyAddrs(gpsGrallocModule,
-                        cur->handle, phyAddr);
-                if (ret) {
-                    ALOGE("%s::GetPhyAddrs fail : ret=%d\n", __func__, ret);
-                    skipped_window_mask |= (1 << i);
-                    continue;
-                }
-
-                /* initialize the src & dist context for fimc */
-                set_src_dst_info (cur, win, &src_img, &dst_img, &src_rect,
-                        &dst_rect, i);
-
-                ret = runFimc(ctx, &src_img, &src_rect, &dst_img, &dst_rect,
-                        phyAddr, cur->transform);
-                if (ret < 0){
-                   ALOGE("%s::runFimc fail : ret=%d\n", __func__, ret);
-                   skipped_window_mask |= (1 << i);
-                   continue;
-                }
-
-                if (win->set_win_flag == 1) {
-                    /* turnoff the window and set the window position with new conf... */
-                    if (window_set_pos(win) < 0) {
-                        ALOGE("%s::window_set_pos is failed : %s", __func__,
-                                strerror(errno));
-                        skipped_window_mask |= (1 << i);
-                        continue;
-                    }
-                    win->set_win_flag = 0;
-                }
-
-                /* is the frame didn't change, it needs to be composited
-                 * because something else below it could have changed, however
-                 * it doesn't need to be swapped.
-                 */
-                if (win->layer_prev_buf != (uint32_t)cur->handle) {
-                    win->layer_prev_buf = (uint32_t)cur->handle;
-                    window_pan_display(win);
-                    win->buf_index = (win->buf_index + 1) % NUM_OF_WIN_BUF;
-                }
-
-                if(win->power_state == 0)
-                    window_show(win);
-
+		ALOGE("%s:: error : HWC_OVERLAY type was set but isn't supported");
             } else {
                 ALOGE("%s:: error : layer %d compositionType should have been \
                         HWC_OVERLAY", __func__, win->layer_index);
@@ -636,11 +433,6 @@ static int hwc_device_close(struct hw_device_t *dev)
     int i;
 
     if (ctx) {
-        if (destroyFimc(&ctx->fimc) < 0) {
-            ALOGE("%s::destroyFimc fail", __func__);
-            ret = -1;
-        }
-
         if (window_close(&ctx->global_lcd_win) < 0) {
             ALOGE("%s::window_close() fail", __func__);
             ret = -1;
@@ -784,13 +576,6 @@ static int hwc_device_open(const struct hw_module_t* module, const char* name,
         }
     }
 
-    /* open pp */
-    if (createFimc(&dev->fimc) < 0) {
-        ALOGE("%s::creatFimc() fail", __func__);
-        status = -EINVAL;
-        goto err;
-    }
-
     err = pthread_create(&dev->vsync_thread, NULL, hwc_vsync_thread, dev);
     if (err) {
         ALOGE("%s::pthread_create() failed : %s", __func__, strerror(err));
@@ -803,9 +588,6 @@ static int hwc_device_open(const struct hw_module_t* module, const char* name,
     return 0;
 
 err:
-    if (destroyFimc(&dev->fimc) < 0)
-        ALOGE("%s::destroyFimc() fail", __func__);
-
     if (window_close(&dev->global_lcd_win) < 0)
         ALOGE("%s::window_close() fail", __func__);
 

@@ -47,8 +47,6 @@
 #include "sec_utils.h"
 #include "hal_public.h"
 
-#define GRALLOC_USAGE_PHYS_CONTIG GRALLOC_USAGE_PRIVATE_1
-
 #define NUM_OF_WIN          (1)
 #define NUM_OF_WIN_BUF      (3)
 #define NUM_OF_MEM_OBJ      (1)
@@ -138,12 +136,5 @@ int window_show(struct hwc_win_info_t *win);
 int window_hide(struct hwc_win_info_t *win);
 int window_get_global_lcd_info(struct hwc_context_t *ctx);
 
-int createFimc(s5p_fimc_t *fimc);
-int destroyFimc(s5p_fimc_t *fimc);
-int runFimc(struct hwc_context_t *ctx,
-            struct sec_img *src_img, struct sec_rect *src_rect,
-            struct sec_img *dst_img, struct sec_rect *dst_rect,
-            unsigned int *phyAddr,
-            uint32_t transform);
 #endif /* ANDROID_SEC_HWC_UTILS_H_*/
 
